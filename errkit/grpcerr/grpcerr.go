@@ -9,6 +9,8 @@
 package grpcerr
 
 import (
+	"maps"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -42,15 +44,13 @@ type Mapper struct {
 }
 
 // NewMapper returns a Mapper that uses the built-in defaults plus any
-// caller-supplied overrides. The override map is shallow-copied; the
-// caller may safely mutate it after this call returns.
+// caller-supplied overrides. The override map is shallow-copied (via the
+// stdlib maps.Clone) so the caller may safely mutate the map after this
+// call returns.
 func NewMapper(override map[errkit.Code]codes.Code) *Mapper {
 	m := &Mapper{}
 	if len(override) > 0 {
-		m.overrides = make(map[errkit.Code]codes.Code, len(override))
-		for k, v := range override {
-			m.overrides[k] = v
-		}
+		m.overrides = maps.Clone(override)
 	}
 	return m
 }

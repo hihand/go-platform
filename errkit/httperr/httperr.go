@@ -8,6 +8,7 @@
 package httperr
 
 import (
+	"maps"
 	"net/http"
 
 	"github.com/hihand/go-platform/errkit"
@@ -17,6 +18,14 @@ import (
 // errkit.Error. Keeping it as a named constant makes the fallback obvious in
 // the generated docs and prevents magic numbers in tests.
 const defaultStatus = http.StatusInternalServerError
+
+// StatusClientClosedRequest is the de-facto HTTP status code for the "client
+// closed the connection" case. Go's net/http package does not yet ship a
+// named constant for it (an upstream proposal has been open for years), so
+// errkit/httperr defines its own. Mapping errkit.CodeCanceled here keeps the
+// default table aligned with the convention used by nginx, Envoy, and most
+// reverse proxies.
+const StatusClientClosedRequest = 499
 
 // defaultMap is the built-in translation table. It mirrors common HTTP/gRPC
 // conventions: not-found surfaces as 404, validation as 400, etc. Callers
@@ -29,7 +38,7 @@ var defaultMap = map[errkit.Code]int{
 	errkit.CodePermissionDenied: http.StatusForbidden,
 	errkit.CodeUnavailable:      http.StatusServiceUnavailable,
 	errkit.CodeDeadlineExceeded: http.StatusGatewayTimeout,
-	errkit.CodeCanceled:         499, // de-facto "Client Closed Request"; Go stdlib has no named constant yet
+	errkit.CodeCanceled:         StatusClientClosedRequest,
 	errkit.CodeInternal:         http.StatusInternalServerError,
 	errkit.CodeUnknown:          http.StatusInternalServerError,
 }
@@ -42,16 +51,13 @@ type Mapper struct {
 }
 
 // NewMapper returns a Mapper that uses the built-in defaults plus any
-// caller-supplied overrides. The override map is shallow-copied; the caller
-// may safely mutate it after this call returns without affecting the
-// mapper.
+// caller-supplied overrides. The override map is shallow-copied (via the
+// stdlib maps.Clone) so the caller may safely mutate the map after this
+// call returns without affecting the mapper.
 func NewMapper(override map[errkit.Code]int) *Mapper {
 	m := &Mapper{}
 	if len(override) > 0 {
-		m.overrides = make(map[errkit.Code]int, len(override))
-		for k, v := range override {
-			m.overrides[k] = v
-		}
+		m.overrides = maps.Clone(override)
 	}
 	return m
 }

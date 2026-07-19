@@ -1,5 +1,7 @@
 package errkit
 
+import "maps"
+
 // MetadataAccessor is the optional interface implemented by *impl so callers
 // can read attached metadata without enlarging the canonical Error interface.
 // Helpers in this package, and any adapter, tolerate the absence of this
@@ -17,11 +19,7 @@ func (i *impl) Metadata() map[string]any {
 	if i.metadata == nil {
 		return map[string]any{}
 	}
-	out := make(map[string]any, len(i.metadata))
-	for k, v := range i.metadata {
-		out[k] = v
-	}
-	return out
+	return maps.Clone(i.metadata)
 }
 
 // MetadataOf extracts the metadata from an arbitrary error, walking the

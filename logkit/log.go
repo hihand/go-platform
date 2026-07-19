@@ -7,11 +7,26 @@ import (
 	"time"
 )
 
+// scratchBufferCap is the initial capacity of the per-call scratch buffer
+// used by the encoder. Most records — schema fields plus a handful of
+// attrs — fit comfortably; the buffer grows automatically on the rare
+// overflow so this is purely a starting hint to sync.Pool.
+const scratchBufferCap = 512
+
+// callerSkipFrames is the number of stack frames between the user's call
+// site and runtime.Callers:
+//
+//	runtime.Callers → caller → log → level method → user
+//
+// Updating this value is required if the call depth between caller() and
+// the public logger API changes (e.g. adding a wrapper in log.go).
+const callerSkipFrames = 5
+
 // bufPool amortises the per-call scratch buffer cost across log calls.
 // Buffer reuse is safe here because each emit() consumes the buffer
 // fully before the next caller checks out.
 var bufPool = sync.Pool{
-	New: func() any { b := make([]byte, 0, 512); return &b },
+	New: func() any { b := make([]byte, 0, scratchBufferCap); return &b },
 }
 
 // log is the internal sink shared by every level method on Logger.
@@ -34,8 +49,7 @@ func (l *impl) log(lvl Level, ctx context.Context, msg string, attrs []Attr) {
 
 	var callerStr string
 	if l.withCaller {
-		// 5 = runtime.Callers → caller → log → level method → user
-		callerStr = caller(5)
+		callerStr = caller(callerSkipFrames)
 	}
 
 	// Lift KeyEvent into the top-level "event" schema field. Call

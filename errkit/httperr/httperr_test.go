@@ -23,7 +23,7 @@ func TestStatusCode_DefaultMapping(t *testing.T) {
 		{errkit.CodePermissionDenied, http.StatusForbidden},
 		{errkit.CodeUnavailable, http.StatusServiceUnavailable},
 		{errkit.CodeDeadlineExceeded, http.StatusGatewayTimeout},
-		{errkit.CodeCanceled, 499},
+		{errkit.CodeCanceled, httperr.StatusClientClosedRequest},
 		{errkit.CodeInternal, http.StatusInternalServerError},
 		{errkit.CodeUnknown, http.StatusInternalServerError},
 	}

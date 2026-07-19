@@ -5,11 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"strings"
+
+	"github.com/gin-gonic/gin"
 
 	"github.com/hihand/go-platform/errkit"
 	"github.com/hihand/go-platform/errkit/grpcerr"
 	"github.com/hihand/go-platform/errkit/httperr"
 	"github.com/hihand/go-platform/logkit"
+	"github.com/hihand/go-platform/responsekit"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -174,6 +179,50 @@ func main() {
 	)
 	logFromHelper(debugLogger, "called from helper")
 
+	// =============================================================================
+	// 9. responsekit: HTTP response helpers (Gin adapter)
+	// =============================================================================
+
+	fmt.Println("\n--- responsekit demo ---")
+
+	// Use a throwaway Gin engine + httptest recorder so we can show
+	// each Gin* function's wire output without standing up a server.
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.GET("/users/:id", func(c *gin.Context) {
+		switch c.Param("id") {
+		case "42":
+			responsekit.GinOK(c, map[string]string{"id": "42", "name": "alice"})
+		case "99":
+			responsekit.GinError(c, errkit.NotFound("user 99 not found"))
+		case "500":
+			responsekit.GinError(c, errors.New("upstream timed out"))
+		default:
+			responsekit.GinError(c, errkit.InvalidArgument("id must be a positive integer"))
+		}
+	})
+	engine.POST("/users", func(c *gin.Context) {
+		responsekit.GinCreated(c, map[string]string{"id": "u-new"})
+	})
+	engine.DELETE("/users/:id", func(c *gin.Context) {
+		responsekit.GinNoContent(c)
+	})
+
+	for _, tc := range []struct {
+		method, path string
+	}{
+		{"GET", "/users/42"},
+		{"GET", "/users/99"},
+		{"GET", "/users/500"},
+		{"GET", "/users/-1"},
+		{"POST", "/users"},
+		{"DELETE", "/users/42"},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		w := httptest.NewRecorder()
+		engine.ServeHTTP(w, req)
+		fmt.Printf("%-6s %-12s → %d %s\n", tc.method, tc.path, w.Code, strings.TrimSpace(w.Body.String()))
+	}
 }
 
 func logFromHelper(l logkit.Logger, msg string) {

@@ -1,5 +1,7 @@
 package errkit
 
+import "maps"
+
 // Option mutates the internal config used during error construction. Options
 // are applied in the order they are supplied; later options override earlier
 // ones for scalar fields. Map-style options (WithMetadata) shallow-copy their
@@ -35,19 +37,15 @@ func WithCause(err error) Option {
 }
 
 // WithMetadata attaches a JSON-friendly metadata map. The supplied map is
-// shallow-copied at construction time and a fresh copy is returned by
-// Metadata() on every call, so callers can mutate their working map freely
-// without affecting the constructed error.
+// shallow-copied at construction time (via the stdlib maps.Clone) and a
+// fresh copy is returned by Metadata() on every call, so callers can mutate
+// their working map freely without affecting the constructed error.
 func WithMetadata(m map[string]any) Option {
 	return func(i *impl) {
 		if len(m) == 0 {
 			return
 		}
-		out := make(map[string]any, len(m))
-		for k, v := range m {
-			out[k] = v
-		}
-		i.metadata = out
+		i.metadata = maps.Clone(m)
 	}
 }
 

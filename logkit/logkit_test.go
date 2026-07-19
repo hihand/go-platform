@@ -413,9 +413,7 @@ func TestLogger_CallerOn(t *testing.T) {
 	if !strings.Contains(caller, ":") {
 		t.Errorf("caller must include line (path:line), got %q", caller)
 	}
-	if strings.Contains(caller, "logkit/caller.go") ||
-		strings.Contains(caller, "logkit/log.go") ||
-		strings.Contains(caller, "logkit/info.go") {
+	if strings.Contains(caller, "logkit/") {
 		t.Errorf("caller leaked logkit internals: %q", caller)
 	}
 }
