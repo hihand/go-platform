@@ -16,19 +16,6 @@ A general-purpose Go platform library providing shared infrastructure for backen
 go get github.com/hihand/go-platform/errkit
 ```
 
-```go
-import "github.com/hihand/go-platform/errkit"
-
-func getUser(id string) (*User, error) {
-    if id == "" {
-        return nil, errkit.InvalidArgument("id is required")
-    }
-    // ...
-    if user == nil {
-        return nil, errkit.NotFound("user not found")
-    }
-    return user, nil
-}
 ```
 
 ## Design Goals

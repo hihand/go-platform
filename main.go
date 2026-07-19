@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"github.com/hihand/go-platform/errkit"
 	"github.com/hihand/go-platform/errkit/grpcerr"
 	"github.com/hihand/go-platform/errkit/httperr"
+	"github.com/hihand/go-platform/logkit"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -104,4 +106,76 @@ func main() {
 	// (see errkit/graphqlerr/graphqlerr.go)
 	// gqlErr := graphqlerr.ToGraphQLError(err)
 
+	// =============================================================================
+	// 8. logkit: structured (JSON) logger
+	// =============================================================================
+
+	fmt.Println("\n--- logkit demo ---")
+
+	// Build the root logger: INFO min-level, static service fields,
+	// a mapper that lifts request.id out of context.
+	logger := logkit.New(
+		logkit.WithService("payment-api", "1.2.0"),
+		logkit.WithDeployment("production"),
+		logkit.WithContextMapper(func(ctx context.Context, attrs []logkit.Attr) []logkit.Attr {
+			if v, ok := ctx.Value("request.id").(string); ok && v != "" {
+				return append(attrs, logkit.String(logkit.AnyKey("request.id"), v))
+			}
+			return attrs
+		}),
+	)
+
+	// 8a. Plain levels — call-site attrs merge into the record.
+	logger.Debug("debug line", logkit.String(logkit.AnyKey("trace"), "abc"))
+	logger.Info("user signed in",
+		logkit.String(logkit.KeyEvent, "user.signed_in"),
+		logkit.String(logkit.AnyKey("user.id"), "u-42"),
+	)
+	logger.Warn("retried",
+		logkit.Int(logkit.AnyKey("attempts"), 3),
+	)
+	logger.Error("downstream failed",
+		logkit.String(logkit.AnyKey("upstream"), "billing"),
+	)
+
+	// 8b. *Context variants — mapper is consulted, request.id lands
+	// in the record. Debug is dropped because min-level is INFO.
+
+	ctx := context.WithValue(context.Background(), "request.id", "req-7f3a")
+	logger.DebugContext(ctx, "skipped (below min level)")
+	logger.InfoContext(ctx, "payment created",
+		logkit.String(logkit.KeyEvent, "payment.created"),
+		logkit.String(logkit.AnyKey("payment.id"), "pay-001"),
+		logkit.Int64(logkit.AnyKey("payment.amount"), 100),
+	)
+
+	// 8c. With — derive a scoped logger; child attrs override parent.
+	scoped := logger.With(
+		logkit.String(logkit.KeyEvent, "request.scoped"),
+		logkit.String(logkit.AnyKey("request.id"), "scoped-req"),
+	)
+	scoped.InfoContext(ctx, "scoped log line")
+
+	// 8d. Formatted variants. Debugf is skipped because the level
+	// gate fires before Sprintf, so the format cost is avoided.
+	logger.Debugf("dropped: %d %s", 1, "ignored")
+	logger.Infof("user=%s age=%d", "alice", 30)
+	logger.Errorf("payment failed: %s", "timeout")
+
+	// 8e. A separate logger with caller capture on, scoped to DEBUG so
+	// we can see what caller output looks like. The wrapper exists
+	// because the immediate caller of logkit.Debug inside main is a
+	// runtime frame; logging from a function on the call stack gives
+	// a cleaner "main.go:line" output.
+	debugLogger := logkit.New(
+		logkit.WithService("payment-api", "1.2.0"),
+		logkit.WithMinLevel(logkit.LevelDebug),
+		logkit.WithCaller(),
+	)
+	logFromHelper(debugLogger, "called from helper")
+
+}
+
+func logFromHelper(l logkit.Logger, msg string) {
+	l.Debug(msg)
 }
