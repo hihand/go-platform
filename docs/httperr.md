@@ -129,3 +129,9 @@ func getUser(w http.ResponseWriter, r *http.Request) {
 - Unknown codes (including custom `Code` values, and built-ins
   `CodeDuplicate`, `CodePaymentRequired`, `CodeUpgradeRequired`) return 500
 - The cause chain is walked via `errkit.FromError` — outer wraps do not affect the result
+
+## Sibling packages
+
+- [logkit](logkit.md) — structured JSON logger
+- [responsekit](responsekit.md) — unified HTTP response envelope (Gin / Fiber / net/http)
+- [paginationkit](paginationkit.md) — offset / cursor pagination models

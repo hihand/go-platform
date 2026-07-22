@@ -192,3 +192,9 @@ if status.Code(grpcErr) == codes.Internal {
 - `ToGRPCError(nil)` returns `nil`
 - The `Status.Message` is set to `errkit.MessageOf(err)` — the errkit message, not the underlying cause
 - The cause chain is walked via `errkit.FromError`
+
+## Sibling packages
+
+- [logkit](logkit.md) — structured JSON logger
+- [responsekit](responsekit.md) — unified HTTP response envelope (Gin / Fiber / net/http)
+- [paginationkit](paginationkit.md) — offset / cursor pagination models

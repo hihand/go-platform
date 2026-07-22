@@ -221,6 +221,12 @@ See the full guides:
 - [HTTP adapter](httperr.md) — `errkit/httperr`
 - [gRPC adapter](grpcerr.md) — `errkit/grpcerr`
 
+## Sibling packages
+
+- [logkit](logkit.md) — structured JSON logger
+- [responsekit](responsekit.md) — unified HTTP response envelope for Gin, Fiber, net/http
+- [paginationkit](paginationkit.md) — offset / cursor pagination models
+
 ## Compatibility with Go's `errors` Package
 
 Every `errkit.Error` is a stdlib `error`, and the cause chain is exposed via `Unwrap()`. This means:
