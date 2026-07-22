@@ -9,18 +9,13 @@ A general-purpose Go platform library providing shared infrastructure for backen
 | `errkit` | Core error type with code, message, cause, and metadata |
 | `errkit/httperr` | Maps `errkit.Code` → HTTP status codes |
 | `errkit/grpcerr` | Maps `errkit.Code` → gRPC status codes |
-
-## Quick Start
-
-```bash
-go get github.com/hihand/go-platform/errkit
-```
-
-```
+| `logkit` | Structured JSON logger with allocation-conscious hot path |
+| `responsekit` | Unified HTTP response envelope for Gin, Fiber, net/http |
+| `paginationkit` | Transport-agnostic offset/cursor pagination models |
 
 ## Design Goals
 
-- **Zero transport dependency** — core package has no imports outside stdlib
+- **Zero transport dependency** — core packages have no imports outside stdlib
 - **stdlib compatible** — implements `error`, `Unwrap()`, works with `errors.Is` / `errors.As`
 - **Options-based construction** — single `New(opts ...Option)` entry point
 - **Defensive copies** — metadata is always shallow-copied on write and read

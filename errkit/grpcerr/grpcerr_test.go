@@ -11,21 +11,63 @@ import (
 	"github.com/hihand/go-platform/errkit/grpcerr"
 )
 
+// defaultMapping exhaustively pins every Code the library maps by default.
+// If you add a Code or change a mapping, add the row here so the wire
+// contract stays explicit.
 func TestToGRPCStatus_DefaultMapping(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		code errkit.Code
 		want codes.Code
 	}{
+		// Transport / lifecycle
+		{errkit.CodeCanceled, codes.Canceled},
+		{errkit.CodeDeadlineExceeded, codes.DeadlineExceeded},
+		{errkit.CodeRequestTimeout, codes.DeadlineExceeded},
+
+		// Client errors → InvalidArgument family
 		{errkit.CodeInvalidArgument, codes.InvalidArgument},
-		{errkit.CodeNotFound, codes.NotFound},
-		{errkit.CodeAlreadyExists, codes.AlreadyExists},
+		{errkit.CodeUnprocessableEntity, codes.InvalidArgument},
+		{errkit.CodeMethodNotAllowed, codes.InvalidArgument},
+		{errkit.CodeURITooLong, codes.InvalidArgument},
+		{errkit.CodeExpectationFailed, codes.InvalidArgument},
+		{errkit.CodeMisdirectedRequest, codes.InvalidArgument},
+		{errkit.CodeNotAcceptable, codes.InvalidArgument},
+		{errkit.CodeLengthRequired, codes.InvalidArgument},
+		{errkit.CodeUnsupportedMediaType, codes.InvalidArgument},
+
+		// Client errors → Unauthenticated / PermissionDenied
 		{errkit.CodeUnauthenticated, codes.Unauthenticated},
 		{errkit.CodePermissionDenied, codes.PermissionDenied},
-		{errkit.CodeUnavailable, codes.Unavailable},
-		{errkit.CodeDeadlineExceeded, codes.DeadlineExceeded},
-		{errkit.CodeCanceled, codes.Canceled},
+
+		// Client errors → FailedPrecondition
+		{errkit.CodeLocked, codes.FailedPrecondition},
+		{errkit.CodeFailedDependency, codes.FailedPrecondition},
+		{errkit.CodeUnavailableForLegalReasons, codes.FailedPrecondition},
+		{errkit.CodePreconditionFailed, codes.FailedPrecondition},
+
+		// Client errors → NotFound / AlreadyExists / Aborted
+		{errkit.CodeNotFound, codes.NotFound},
+		{errkit.CodeGone, codes.NotFound},
+		{errkit.CodeAlreadyExists, codes.AlreadyExists},
+		{errkit.CodeConflict, codes.Aborted},
+
+		// Client errors → OutOfRange
+		{errkit.CodeRangeNotSatisfiable, codes.OutOfRange},
+
+		// Client errors → ResourceExhausted
+		{errkit.CodeTooManyRequests, codes.ResourceExhausted},
+		{errkit.CodePayloadTooLarge, codes.ResourceExhausted},
+		{errkit.CodeRequestHeaderFieldsTooLarge, codes.ResourceExhausted},
+
+		// Server errors
 		{errkit.CodeInternal, codes.Internal},
+		{errkit.CodeNotImplemented, codes.Unimplemented},
+		{errkit.CodeBadGateway, codes.Unavailable},
+		{errkit.CodeUnavailable, codes.Unavailable},
+		{errkit.CodeDataLoss, codes.DataLoss},
+		{errkit.CodeNetworkAuthenticationRequired, codes.Unauthenticated},
+
 		{errkit.CodeUnknown, codes.Unknown},
 	}
 	for _, tc := range cases {
@@ -53,8 +95,15 @@ func TestToGRPCStatus_Fallback(t *testing.T) {
 	if got := grpcerr.ToGRPCStatus(errors.New("plain")); got.Code() != codes.Unknown {
 		t.Errorf("non-errkit -> Unknown, got %v", got.Code())
 	}
-	if got := grpcerr.ToGRPCStatus(errkit.New(errkit.WithCode(errkit.Code("PAYMENT_REQUIRED")))); got.Code() != codes.Unknown {
-		t.Errorf("unmapped -> Unknown, got %v", got.Code())
+	for _, code := range []errkit.Code{
+		errkit.CodeDuplicate,        // built-in but intentionally unmapped
+		errkit.CodePaymentRequired,  // built-in but intentionally unmapped
+		errkit.CodeUpgradeRequired,  // built-in but intentionally unmapped
+		errkit.Code("PAYMENT_REQUIRED"),
+	} {
+		if got := grpcerr.ToGRPCStatus(errkit.New(errkit.WithCode(code))); got.Code() != codes.Unknown {
+			t.Errorf("unmapped code %q -> Unknown, got %v", code, got.Code())
+		}
 	}
 }
 
@@ -66,6 +115,18 @@ func TestMapper_Override(t *testing.T) {
 	got := m.ToGRPCStatus(errkit.New(errkit.WithCode(errkit.CodeInvalidArgument)))
 	if got.Code() != codes.FailedPrecondition {
 		t.Errorf("override not applied: got %v", got.Code())
+	}
+}
+
+// Mapper is free to introduce mappings for codes the default table skips
+// (CodeDuplicate, CodePaymentRequired, …). Lock that path in.
+func TestMapper_AddsNewEntries(t *testing.T) {
+	t.Parallel()
+	m := grpcerr.NewMapper(map[errkit.Code]codes.Code{
+		errkit.CodeDuplicate: codes.AlreadyExists,
+	})
+	if got := m.ToGRPCStatus(errkit.New(errkit.WithCode(errkit.CodeDuplicate))); got.Code() != codes.AlreadyExists {
+		t.Errorf("CodeDuplicate override not applied: got %v", got.Code())
 	}
 }
 

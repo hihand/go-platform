@@ -4,18 +4,104 @@ Maps `errkit.Code` to gRPC codes and builds `google.golang.org/grpc/status.Statu
 
 ## Default Mapping
 
+Wire labels follow the [gRPC status codes specification](https://grpc.io/docs/grpc-framework/status-codes/).
+
+### Transport / lifecycle
+
 | errkit.Code | gRPC Code |
 |-------------|-----------|
-| `CodeInvalidArgument` | `codes.InvalidArgument` |
-| `CodeNotFound` | `codes.NotFound` |
-| `CodeAlreadyExists` | `codes.AlreadyExists` |
+| `CodeCanceled` | `codes.Canceled` |
+| `CodeDeadlineExceeded` | `codes.DeadlineExceeded` |
+| `CodeRequestTimeout` | `codes.DeadlineExceeded` (no dedicated gRPC code) |
+
+### Client errors → `InvalidArgument`
+
+These all surface as `codes.InvalidArgument` (gRPC has no finer-grained
+"structural" code):
+
+| errkit.Code |
+|-------------|
+| `CodeInvalidArgument` |
+| `CodeUnprocessableEntity` |
+| `CodeMethodNotAllowed` |
+| `CodeURITooLong` |
+| `CodeExpectationFailed` |
+| `CodeMisdirectedRequest` |
+| `CodeNotAcceptable` |
+| `CodeLengthRequired` |
+| `CodeUnsupportedMediaType` |
+
+### Client errors → `Unauthenticated` / `PermissionDenied`
+
+| errkit.Code | gRPC Code |
+|-------------|-----------|
 | `CodeUnauthenticated` | `codes.Unauthenticated` |
 | `CodePermissionDenied` | `codes.PermissionDenied` |
-| `CodeUnavailable` | `codes.Unavailable` |
-| `CodeDeadlineExceeded` | `codes.DeadlineExceeded` |
-| `CodeCanceled` | `codes.Canceled` |
+
+### Client errors → `FailedPrecondition`
+
+When the operation *could* succeed if the resource state were different:
+
+| errkit.Code | gRPC Code |
+|-------------|-----------|
+| `CodeLocked` | `codes.FailedPrecondition` |
+| `CodeFailedDependency` | `codes.FailedPrecondition` |
+| `CodeUnavailableForLegalReasons` | `codes.FailedPrecondition` |
+| `CodePreconditionFailed` | `codes.FailedPrecondition` |
+
+### Client errors → resource state / conflict
+
+| errkit.Code | gRPC Code |
+|-------------|-----------|
+| `CodeNotFound` | `codes.NotFound` |
+| `CodeGone` | `codes.NotFound` |
+| `CodeAlreadyExists` | `codes.AlreadyExists` |
+| `CodeConflict` | `codes.Aborted` |
+
+### Client errors → `OutOfRange`
+
+| errkit.Code | gRPC Code |
+|-------------|-----------|
+| `CodeRangeNotSatisfiable` | `codes.OutOfRange` |
+
+### Client errors → `ResourceExhausted`
+
+| errkit.Code | gRPC Code |
+|-------------|-----------|
+| `CodeTooManyRequests` | `codes.ResourceExhausted` |
+| `CodePayloadTooLarge` | `codes.ResourceExhausted` |
+| `CodeRequestHeaderFieldsTooLarge` | `codes.ResourceExhausted` |
+
+### Server errors
+
+| errkit.Code | gRPC Code |
+|-------------|-----------|
 | `CodeInternal` | `codes.Internal` |
+| `CodeNotImplemented` | `codes.Unimplemented` |
+| `CodeBadGateway` | `codes.Unavailable` |
+| `CodeUnavailable` | `codes.Unavailable` |
+| `CodeDataLoss` | `codes.DataLoss` |
+| `CodeNetworkAuthenticationRequired` | `codes.Unauthenticated` |
+
+### Catch-all
+
+| errkit.Code | gRPC Code |
+|-------------|-----------|
 | `CodeUnknown` | `codes.Unknown` |
+
+### Intentionally unmapped
+
+`CodeDuplicate`, `CodePaymentRequired`, `CodeUpgradeRequired`, and every
+custom code the library does not know about fall back to `codes.Unknown`.
+Override via `NewMapper`:
+
+```go
+m := grpcerr.NewMapper(map[errkit.Code]codes.Code{
+    errkit.CodeDuplicate:        codes.AlreadyExists,
+    errkit.CodePaymentRequired:  codes.FailedPrecondition,
+    errkit.Code("DOMAIN_X"):     codes.ResourceExhausted, // example
+})
+```
 
 ## Usage
 
@@ -61,7 +147,7 @@ status := mapper.ToGRPCStatus(errkit.NotFound("user 42"))
 ## Two Return Forms
 
 | Function | Returns | Use case |
-|----------|---------|---------|
+|----------|---------|----------|
 | `ToGRPCStatus` | `*status.Status` | Inspect code/message, build trailers, compose |
 | `ToGRPCError` | `error` | Return directly from a gRPC handler |
 
@@ -82,7 +168,7 @@ import "google.golang.org/grpc/status"
 
 st, ok := status.FromError(grpcErr)
 if ok {
-    fmt.Println(st.Code()) // e.g., codes.Internal
+    fmt.Println(st.Code())   // e.g., codes.Internal
     fmt.Println(st.Message()) // e.g., "database unavailable"
 }
 ```
@@ -100,7 +186,7 @@ if status.Code(grpcErr) == codes.Internal {
 }
 ```
 
-## Behavior
+## Behaviour
 
 - `ToGRPCStatus(nil)` returns a status with `codes.Unknown` and empty message
 - `ToGRPCError(nil)` returns `nil`

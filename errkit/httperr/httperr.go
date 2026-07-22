@@ -27,20 +27,62 @@ const defaultStatus = http.StatusInternalServerError
 // reverse proxies.
 const StatusClientClosedRequest = 499
 
-// defaultMap is the built-in translation table. It mirrors common HTTP/gRPC
-// conventions: not-found surfaces as 404, validation as 400, etc. Callers
-// may override individual entries via NewMapper.
+// defaultMap is the built-in translation table. Wire labels follow the
+// conventions of RFC 9110 (HTTP Semantics, 2022) and are aligned 1:1 with
+// the canonical HTTP reason phrases.
+//
+// Codes that the built-in table intentionally does **not** include:
+//
+//   - `CodeDuplicate` — 409 by convention, but DB-specific. Apps register
+//     an explicit mapping via `NewMapper` to keep the policy local.
+//   - `CodePaymentRequired` — 402 is reserved by RFC 9110 but rarely
+//     used; the application decides whether to expose it.
+//   - `CodeUpgradeRequired` — use a custom mapper to return 426.
+//
+// `defaultMap` is the **only** place where this set is defined; callers
+// that want a different policy build their own `Mapper` and ignore it.
 var defaultMap = map[errkit.Code]int{
-	errkit.CodeInvalidArgument:  http.StatusBadRequest,
-	errkit.CodeNotFound:         http.StatusNotFound,
-	errkit.CodeAlreadyExists:    http.StatusConflict,
-	errkit.CodeUnauthenticated:  http.StatusUnauthorized,
-	errkit.CodePermissionDenied: http.StatusForbidden,
-	errkit.CodeUnavailable:      http.StatusServiceUnavailable,
-	errkit.CodeDeadlineExceeded: http.StatusGatewayTimeout,
+	// ----- Transport / lifecycle -----
 	errkit.CodeCanceled:         StatusClientClosedRequest,
-	errkit.CodeInternal:         http.StatusInternalServerError,
-	errkit.CodeUnknown:          http.StatusInternalServerError,
+	errkit.CodeDeadlineExceeded: http.StatusGatewayTimeout,
+	errkit.CodeRequestTimeout:   http.StatusRequestTimeout,
+
+	// ----- Client errors (4xx) -----
+	errkit.CodeInvalidArgument:            http.StatusBadRequest,
+	errkit.CodeUnauthenticated:            http.StatusUnauthorized,
+	errkit.CodePermissionDenied:           http.StatusForbidden,
+	errkit.CodeNotFound:                   http.StatusNotFound,
+	errkit.CodeMethodNotAllowed:           http.StatusMethodNotAllowed,
+	errkit.CodeNotAcceptable:              http.StatusNotAcceptable,
+	errkit.CodeConflict:                   http.StatusConflict,
+	errkit.CodeAlreadyExists:              http.StatusConflict,
+	errkit.CodeGone:                       http.StatusGone,
+	errkit.CodeLengthRequired:             http.StatusLengthRequired,
+	errkit.CodePreconditionFailed:         http.StatusPreconditionFailed,
+	errkit.CodePayloadTooLarge:            http.StatusRequestEntityTooLarge,
+	errkit.CodeURITooLong:                 http.StatusRequestURITooLong,
+	errkit.CodeUnsupportedMediaType:       http.StatusUnsupportedMediaType,
+	errkit.CodeRangeNotSatisfiable:        http.StatusRequestedRangeNotSatisfiable,
+	errkit.CodeExpectationFailed:          http.StatusExpectationFailed,
+	errkit.CodeMisdirectedRequest:         http.StatusMisdirectedRequest,
+	errkit.CodeUnprocessableEntity:        http.StatusUnprocessableEntity,
+	errkit.CodeLocked:                     http.StatusLocked,
+	errkit.CodeFailedDependency:           http.StatusFailedDependency,
+	errkit.CodeTooManyRequests:            http.StatusTooManyRequests,
+	errkit.CodeRequestHeaderFieldsTooLarge: http.StatusRequestHeaderFieldsTooLarge,
+	errkit.CodeUnavailableForLegalReasons: http.StatusUnavailableForLegalReasons,
+
+	// ----- Server errors (5xx) -----
+	errkit.CodeInternal:                    http.StatusInternalServerError,
+	errkit.CodeNotImplemented:              http.StatusNotImplemented,
+	errkit.CodeBadGateway:                  http.StatusBadGateway,
+	errkit.CodeUnavailable:                 http.StatusServiceUnavailable,
+	errkit.CodeDataLoss:                    http.StatusInsufficientStorage,
+	errkit.CodeNetworkAuthenticationRequired: http.StatusNetworkAuthenticationRequired,
+
+	// Catch-all must stay last in this comment block but anywhere in the
+	// map — `defaultStatus` is consulted when no rule matches.
+	errkit.CodeUnknown: http.StatusInternalServerError,
 }
 
 // Mapper translates errkit.Code into an HTTP status code. A Mapper is

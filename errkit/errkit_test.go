@@ -71,19 +71,33 @@ func TestWrap_PreservesCauseAndIs(t *testing.T) {
 func TestSugarConstructors(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		name string
-		got  errkit.Error
-		code errkit.Code
+		name    string
+		got     errkit.Error
+		code    errkit.Code
+		wantMsg string
 	}{
-		{"NotFound", errkit.NotFound("nf"), errkit.CodeNotFound},
-		{"InvalidArgument", errkit.InvalidArgument("ia"), errkit.CodeInvalidArgument},
-		{"Internal", errkit.Internal("in"), errkit.CodeInternal},
-		{"AlreadyExists", errkit.AlreadyExists("ae"), errkit.CodeAlreadyExists},
-		{"Unauthenticated", errkit.Unauthenticated("ua"), errkit.CodeUnauthenticated},
-		{"PermissionDenied", errkit.PermissionDenied("pd"), errkit.CodePermissionDenied},
-		{"Unavailable", errkit.Unavailable("uv"), errkit.CodeUnavailable},
-		{"DeadlineExceeded", errkit.DeadlineExceeded("de"), errkit.CodeDeadlineExceeded},
-		{"Canceled", errkit.Canceled("cx"), errkit.CodeCanceled},
+		{"NotFound", errkit.NotFound("nf"), errkit.CodeNotFound, "nf"},
+		{"InvalidArgument", errkit.InvalidArgument("ia"), errkit.CodeInvalidArgument, "ia"},
+		{"Internal", errkit.Internal("in"), errkit.CodeInternal, "in"},
+		{"AlreadyExists", errkit.AlreadyExists("ae"), errkit.CodeAlreadyExists, "ae"},
+		{"Conflict", errkit.Conflict("cf"), errkit.CodeConflict, "cf"},
+		{"Unauthenticated", errkit.Unauthenticated("ua"), errkit.CodeUnauthenticated, "ua"},
+		{"PermissionDenied", errkit.PermissionDenied("pd"), errkit.CodePermissionDenied, "pd"},
+		{"Unavailable", errkit.Unavailable("uv"), errkit.CodeUnavailable, "uv"},
+		{"BadGateway", errkit.BadGateway("bg"), errkit.CodeBadGateway, "bg"},
+		{"DeadlineExceeded", errkit.DeadlineExceeded("de"), errkit.CodeDeadlineExceeded, "de"},
+		{"RequestTimeout", errkit.RequestTimeout("rt"), errkit.CodeRequestTimeout, "rt"},
+		{"Canceled", errkit.Canceled("cx"), errkit.CodeCanceled, "cx"},
+		{"TooManyRequests", errkit.TooManyRequests("tm"), errkit.CodeTooManyRequests, "tm"},
+		{"UnprocessableEntity", errkit.UnprocessableEntity("up"), errkit.CodeUnprocessableEntity, "up"},
+		{"PayloadTooLarge", errkit.PayloadTooLarge("pl"), errkit.CodePayloadTooLarge, "pl"},
+		{"MethodNotAllowed", errkit.MethodNotAllowed("ma"), errkit.CodeMethodNotAllowed, "ma"},
+		{"NotAcceptable", errkit.NotAcceptable("na"), errkit.CodeNotAcceptable, "na"},
+		{"Gone", errkit.Gone("gn"), errkit.CodeGone, "gn"},
+		{"NotImplemented", errkit.NotImplemented("ni"), errkit.CodeNotImplemented, "ni"},
+		{"DataLoss", errkit.DataLoss("dl"), errkit.CodeDataLoss, "dl"},
+		{"PreconditionFailed", errkit.PreconditionFailed("pf"), errkit.CodePreconditionFailed, "pf"},
+		{"UnsupportedMediaType", errkit.UnsupportedMediaType("mt"), errkit.CodeUnsupportedMediaType, "mt"},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -91,6 +105,41 @@ func TestSugarConstructors(t *testing.T) {
 			t.Parallel()
 			if tc.got.Code() != tc.code {
 				t.Errorf("%s: code want %q, got %q", tc.name, tc.code, tc.got.Code())
+			}
+			if tc.got.Message() != tc.wantMsg {
+				t.Errorf("%s: message want %q, got %q", tc.name, tc.wantMsg, tc.got.Message())
+			}
+		})
+	}
+}
+
+// Codes that intentionally have no sugar constructor should still be
+// constructible via New(WithCode(...)) and round-trip cleanly. This guards
+// against accidentally deleting a Code while adding sugar.
+func TestReservedCodes_Constructible(t *testing.T) {
+	t.Parallel()
+	for _, code := range []errkit.Code{
+		errkit.CodeDuplicate,
+		errkit.CodePaymentRequired,
+		errkit.CodeUpgradeRequired,
+		errkit.CodeURITooLong,
+		errkit.CodeMisdirectedRequest,
+		errkit.CodeLocked,
+		errkit.CodeFailedDependency,
+		errkit.CodeRangeNotSatisfiable,
+		errkit.CodeExpectationFailed,
+		errkit.CodeRequestHeaderFieldsTooLarge,
+		errkit.CodeUnavailableForLegalReasons,
+		errkit.CodeLengthRequired,
+		errkit.CodeNetworkAuthenticationRequired,
+	} {
+		t.Run(string(code), func(t *testing.T) {
+			err := errkit.New(errkit.WithCode(code), errkit.WithMessage("x"))
+			if err.Code() != code {
+				t.Errorf("code not preserved: want %q, got %q", code, err.Code())
+			}
+			if err.Message() != "x" {
+				t.Errorf("message not preserved: want %q, got %q", "x", err.Message())
 			}
 		})
 	}

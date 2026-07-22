@@ -17,10 +17,10 @@ Go's built-in `error` interface is just a string. In a real system you need:
 
 ```go
 type Error interface {
-    error                          // standard error interface
-    Code() Code                   // machine tag: "NOT_FOUND", "INVALID_ARGUMENT", ...
-    Message() string              // human text: "user 42 not found"
-    Unwrap() error               // cause chain for errors.Is / errors.As
+    error                 // standard error interface
+    Code() Code           // machine tag: "NOT_FOUND", "INVALID_ARGUMENT", ...
+    Message() string      // human text: "user 42 not found"
+    Unwrap() error        // cause chain for errors.Is / errors.As
 }
 ```
 
@@ -28,20 +28,89 @@ type Error interface {
 
 `errkit.Code` is `string` — no enum, no int, JSON-serializable by default.
 
+The constants are grouped by lifecycle stage so 4xx codes live together, 5xx
+codes live together, and protocol-time exceptions (`Canceled`,
+`DeadlineExceeded`, `RequestTimeout`) sit at the top. Wire labels follow
+**gRPC conventions** rather than HTTP-internal names — `CodeInternal` is
+`"INTERNAL"`, not `"INTERNAL_SERVER_ERROR"` — so the same string round-trips
+through both `httperr` and `grpcerr`.
+
+### Transport / lifecycle
+
+| Code | Wire |
+|------|------|
+| `CodeUnknown` | `"UNKNOWN"` |
+| `CodeCanceled` | `"CANCELED"` |
+| `CodeDeadlineExceeded` | `"DEADLINE_EXCEEDED"` |
+| `CodeRequestTimeout` | `"REQUEST_TIMEOUT"` |
+
+### Client errors (4xx)
+
+| Code | Wire |
+|------|------|
+| `CodeInvalidArgument` | `"INVALID_ARGUMENT"` |
+| `CodeUnauthenticated` | `"UNAUTHENTICATED"` |
+| `CodePermissionDenied` | `"PERMISSION_DENIED"` |
+| `CodeNotFound` | `"NOT_FOUND"` |
+| `CodeConflict` | `"CONFLICT"` |
+| `CodeAlreadyExists` | `"ALREADY_EXISTS"` |
+| `CodeDuplicate` | `"DUPLICATE"` |
+| `CodeMethodNotAllowed` | `"METHOD_NOT_ALLOWED"` |
+| `CodeNotAcceptable` | `"NOT_ACCEPTABLE"` |
+| `CodeGone` | `"GONE"` |
+| `CodeLengthRequired` | `"LENGTH_REQUIRED"` |
+| `CodePreconditionFailed` | `"PRECONDITION_FAILED"` |
+| `CodePayloadTooLarge` | `"PAYLOAD_TOO_LARGE"` |
+| `CodeURITooLong` | `"URI_TOO_LONG"` |
+| `CodeUnsupportedMediaType` | `"UNSUPPORTED_MEDIA_TYPE"` |
+| `CodeRangeNotSatisfiable` | `"RANGE_NOT_SATISFIABLE"` |
+| `CodeExpectationFailed` | `"EXPECTATION_FAILED"` |
+| `CodeMisdirectedRequest` | `"MISDIRECTED_REQUEST"` |
+| `CodeUnprocessableEntity` | `"UNPROCESSABLE_ENTITY"` |
+| `CodeLocked` | `"LOCKED"` |
+| `CodeFailedDependency` | `"FAILED_DEPENDENCY"` |
+| `CodeTooManyRequests` | `"TOO_MANY_REQUESTS"` |
+| `CodeRequestHeaderFieldsTooLarge` | `"REQUEST_HEADER_FIELDS_TOO_LARGE"` |
+| `CodeUnavailableForLegalReasons` | `"UNAVAILABLE_FOR_LEGAL_REASONS"` |
+| `CodePaymentRequired` | `"PAYMENT_REQUIRED"` |
+| `CodeUpgradeRequired` | `"UPGRADE_REQUIRED"` |
+
+### Server errors (5xx)
+
+| Code | Wire |
+|------|------|
+| `CodeInternal` | `"INTERNAL"` |
+| `CodeNotImplemented` | `"NOT_IMPLEMENTED"` |
+| `CodeBadGateway` | `"BAD_GATEWAY"` |
+| `CodeUnavailable` | `"UNAVAILABLE"` |
+| `CodeDataLoss` | `"DATA_LOSS"` |
+| `CodeNetworkAuthenticationRequired` | `"NETWORK_AUTHENTICATION_REQUIRED"` |
+
+### Custom codes
+
+Declare your own when you need a domain-specific wire label:
+
 ```go
-const (
-    CodeUnknown          Code = "UNKNOWN"
-    CodeInvalidArgument  Code = "INVALID_ARGUMENT"
-    CodeNotFound         Code = "NOT_FOUND"
-    CodeAlreadyExists    Code = "ALREADY_EXISTS"
-    CodeUnauthenticated  Code = "UNAUTHENTICATED"
-    CodePermissionDenied Code = "PERMISSION_DENIED"
-    CodeInternal         Code = "INTERNAL"
-    CodeUnavailable      Code = "UNAVAILABLE"
-    CodeDeadlineExceeded Code = "DEADLINE_EXCEEDED"
-    CodeCanceled         Code = "CANCELED"
-)
+const errkit.CodePaymentRequired errkit.Code = "PAYMENT_REQUIRED"
 ```
+
+The default adapters ignore unknown codes (`CodeUnknown` and `Code("…")` both
+fall back to 500 / `Unknown`), so pick a label with `NewMapper` whenever the
+default mapping would be wrong.
+
+### Picking the right conflict-style code
+
+Three 409-family codes coexist on purpose. Pick the narrowest one:
+
+- **`CodeConflict`** — generic business-rule clash. "You can't transition
+  a published invoice back to draft."
+- **`CodeAlreadyExists`** — gRPC-flavoured: another writer created the
+  resource while this request was in flight.
+- **`CodeDuplicate`** — strictly stronger: a uniqueness constraint (DB
+  unique index, idempotency key) was violated.
+
+`httperr` and `grpcerr` map all three to 409 / `Aborted` by default. Wire
+`CodeDuplicate` to a more specific status via `NewMapper` if you have to.
 
 ## Construction
 
@@ -70,12 +139,33 @@ errkit.NotFound("user 42")
 errkit.InvalidArgument("id is required")
 errkit.Internal("database unavailable")
 errkit.AlreadyExists("email already registered")
+errkit.Conflict("optimistic lock failed")
 errkit.Unauthenticated("token expired")
 errkit.PermissionDenied("insufficient access rights")
 errkit.Unavailable("service overloaded")
 errkit.DeadlineExceeded("upstream timeout")
+errkit.RequestTimeout("client gave up")
+errkit.TooManyRequests("rate limit exceeded")
+errkit.UnprocessableEntity("business rule rejected the request")
+errkit.PayloadTooLarge("file too big")
+errkit.MethodNotAllowed("use PUT")
+errkit.NotAcceptable("no JSON variant available")
+errkit.Gone("resource was archived")
+errkit.PreconditionFailed("ETag mismatch")
+errkit.UnsupportedMediaType("only application/json")
+errkit.BadGateway("upstream returned an invalid response")
+errkit.NotImplemented("feature is on the roadmap")
+errkit.DataLoss("read after write found torn pages")
 errkit.Canceled("request cancelled by client")
 ```
+
+> Codes that intentionally have no sugar constructor — `Duplicate`,
+> `PaymentRequired`, `UpgradeRequired`, `URITooLong`, `MisdirectedRequest`,
+> `Locked`, `FailedDependency`, `RangeNotSatisfiable`, `ExpectationFailed`,
+> `RequestHeaderFieldsTooLarge`, `UnavailableForLegalReasons`,
+> `LengthRequired`, `NetworkAuthenticationRequired` — are reachable via
+> `New(WithCode(...), WithMessage(...))`. The deliberate gap forces callers
+> to pick a wire policy rather than re-typing the constant.
 
 ### Zero value
 
@@ -113,8 +203,8 @@ err := errkit.Wrap(cause,
 )
 
 errkit.CodeOf(err)        // UNAVAILABLE
-errkit.MessageOf(err)    // upstream is down
-errkit.MetadataOf(err)   // map[retry:true]
+errkit.MessageOf(err)     // upstream is down
+errkit.MetadataOf(err)    // map[retry:true]
 
 e, ok := errkit.FromError(err) // extracts first errkit.Error in the chain
 if ok {
@@ -152,7 +242,6 @@ errors.As(wrapped, &e) // true if any cause is an errkit.Error
 | File | Purpose |
 |------|---------|
 | `spec.go` | `Error` interface definition |
-| `types.go` | `impl` struct, `config`, `build()` |
 | `code.go` | `Code` type, constants, helpers (`CodeOf`, `FromError`, `IsCode`) |
 | `new.go` | `New`, `Wrap`, sugar constructors |
 | `options.go` | `Option` type and helpers (`WithCode`, `WithMessage`, etc.) |

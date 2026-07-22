@@ -21,19 +21,74 @@ import (
 // errkit.Error. Per gRPC convention Unknown is the catch-all.
 const defaultCode = codes.Unknown
 
-// defaultMap is the built-in translation table. Mirrors common practice:
-// validation -> InvalidArgument, not-found -> NotFound, etc.
+// defaultMap is the built-in translation table. Wire labels follow the gRPC
+// status codes document (https://grpc.io/docs/grpc-framework/status-codes/).
+//
+// Several errkit codes collapse onto the same gRPC code because the
+// protocol cannot express the distinction. The notable cases:
+//
+//   - `CodeInvalidArgument`, `CodeUnprocessableEntity`, `CodeURITooLong`,
+//     `CodeMethodNotAllowed`, `CodeExpectationFailed`, `CodeMisdirectedRequest`
+//     → `codes.InvalidArgument`: validation/structural failures.
+//   - `CodePermissionDenied`, `CodeLocked`, `CodeFailedDependency`,
+//     `CodeUnavailableForLegalReasons` → `codes.FailedPrecondition`:
+//     the operation could succeed on a different state.
+//   - `CodeTooManyRequests`, `CodePayloadTooLarge`,
+//     `CodeRequestHeaderFieldsTooLarge` → `codes.ResourceExhausted`.
+//   - `CodeUnavailable`, `CodeBadGateway`, `CodeNetworkAuthenticationRequired`
+//     → `codes.Unavailable`.
+//   - `CodeRangeNotSatisfiable`, `CodeLengthRequired` → `codes.OutOfRange`.
+//
+// Codes the table intentionally omits: `CodeDuplicate`, `CodeUpgradeRequired`,
+// `CodePaymentRequired`, `CodeRequestTimeout` (gRPC has no `RequestTimeout`;
+// we map to `DeadlineExceeded` for consistency). Callers that need an exact
+// mapping register it via `NewMapper`.
 var defaultMap = map[errkit.Code]codes.Code{
-	errkit.CodeInvalidArgument:  codes.InvalidArgument,
-	errkit.CodeNotFound:         codes.NotFound,
-	errkit.CodeAlreadyExists:    codes.AlreadyExists,
-	errkit.CodeUnauthenticated:  codes.Unauthenticated,
-	errkit.CodePermissionDenied: codes.PermissionDenied,
-	errkit.CodeUnavailable:      codes.Unavailable,
-	errkit.CodeDeadlineExceeded: codes.DeadlineExceeded,
+	// ----- Transport / lifecycle -----
 	errkit.CodeCanceled:         codes.Canceled,
-	errkit.CodeInternal:         codes.Internal,
-	errkit.CodeUnknown:          codes.Unknown,
+	errkit.CodeDeadlineExceeded: codes.DeadlineExceeded,
+	errkit.CodeRequestTimeout:   codes.DeadlineExceeded,
+
+	// ----- Client errors (4xx → request-shape failures) -----
+	errkit.CodeInvalidArgument:            codes.InvalidArgument,
+	errkit.CodeUnprocessableEntity:        codes.InvalidArgument,
+	errkit.CodeMethodNotAllowed:           codes.InvalidArgument,
+	errkit.CodeURITooLong:                 codes.InvalidArgument,
+	errkit.CodeExpectationFailed:          codes.InvalidArgument,
+	errkit.CodeMisdirectedRequest:         codes.InvalidArgument,
+
+	// ----- Client errors → FailedPrecondition -----
+	errkit.CodePermissionDenied:             codes.PermissionDenied,
+	errkit.CodeUnauthenticated:             codes.Unauthenticated,
+	errkit.CodeLocked:                      codes.FailedPrecondition,
+	errkit.CodeFailedDependency:            codes.FailedPrecondition,
+	errkit.CodeUnavailableForLegalReasons:  codes.FailedPrecondition,
+
+	errkit.CodeNotFound:        codes.NotFound,
+	errkit.CodeAlreadyExists:   codes.AlreadyExists,
+	errkit.CodeConflict:        codes.Aborted,
+	errkit.CodeGone:            codes.NotFound,
+	errkit.CodeNotAcceptable:   codes.InvalidArgument,
+	errkit.CodeLengthRequired:  codes.InvalidArgument,
+	errkit.CodePreconditionFailed: codes.FailedPrecondition,
+	errkit.CodeUnsupportedMediaType: codes.InvalidArgument,
+	errkit.CodeRangeNotSatisfiable: codes.OutOfRange,
+
+	// ----- Client errors → resource exhaustion -----
+	errkit.CodeTooManyRequests:             codes.ResourceExhausted,
+	errkit.CodePayloadTooLarge:             codes.ResourceExhausted,
+	errkit.CodeRequestHeaderFieldsTooLarge: codes.ResourceExhausted,
+
+	// ----- Server errors (5xx) -----
+	errkit.CodeInternal:                    codes.Internal,
+	errkit.CodeNotImplemented:              codes.Unimplemented,
+	errkit.CodeBadGateway:                  codes.Unavailable,
+	errkit.CodeUnavailable:                 codes.Unavailable,
+	errkit.CodeDataLoss:                    codes.DataLoss,
+	errkit.CodeNetworkAuthenticationRequired: codes.Unauthenticated,
+
+	// Catch-all.
+	errkit.CodeUnknown: codes.Unknown,
 }
 
 // Mapper translates errkit.Code into a gRPC code. A Mapper is immutable

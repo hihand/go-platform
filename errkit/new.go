@@ -63,53 +63,99 @@ func Wrap(err error, opts ...Option) Error {
 	return e
 }
 
-// NotFound is sugar for New(WithCode(CodeNotFound), WithMessage(msg)).
+// =============================================================================
+// Sugar constructors
 //
-//	errkit.NotFound("user not found")
+// One sugar per Code that is meant to be raised directly. Codes that are
+// intentionally *not* sugared (e.g. CodeDuplicate, CodePaymentRequired,
+// CodeUpgradeRequired) require `New(WithCode(...), WithMessage(...))` — this
+// forces the caller to be deliberate about the wire choice.
+// =============================================================================
+
 func NotFound(msg string) Error {
 	return New(WithCode(CodeNotFound), WithMessage(msg))
 }
 
-// InvalidArgument is sugar for New(WithCode(CodeInvalidArgument), WithMessage(msg)).
-//
-//	errkit.InvalidArgument("id is required")
 func InvalidArgument(msg string) Error {
 	return New(WithCode(CodeInvalidArgument), WithMessage(msg))
 }
 
-// Internal is sugar for New(WithCode(CodeInternal), WithMessage(msg)).
-//
-//	errkit.Internal("database unavailable")
-func Internal(msg string) Error {
-	return New(WithCode(CodeInternal), WithMessage(msg))
-}
-
-// AlreadyExists is sugar for New(WithCode(CodeAlreadyExists), WithMessage(msg)).
 func AlreadyExists(msg string) Error {
 	return New(WithCode(CodeAlreadyExists), WithMessage(msg))
 }
 
-// Unauthenticated is sugar for New(WithCode(CodeUnauthenticated), WithMessage(msg)).
+func Conflict(msg string) Error {
+	return New(WithCode(CodeConflict), WithMessage(msg))
+}
+
 func Unauthenticated(msg string) Error {
 	return New(WithCode(CodeUnauthenticated), WithMessage(msg))
 }
 
-// PermissionDenied is sugar for New(WithCode(CodePermissionDenied), WithMessage(msg)).
 func PermissionDenied(msg string) Error {
 	return New(WithCode(CodePermissionDenied), WithMessage(msg))
 }
 
-// Unavailable is sugar for New(WithCode(CodeUnavailable), WithMessage(msg)).
 func Unavailable(msg string) Error {
 	return New(WithCode(CodeUnavailable), WithMessage(msg))
 }
 
-// DeadlineExceeded is sugar for New(WithCode(CodeDeadlineExceeded), WithMessage(msg)).
 func DeadlineExceeded(msg string) Error {
 	return New(WithCode(CodeDeadlineExceeded), WithMessage(msg))
 }
 
-// Canceled is sugar for New(WithCode(CodeCanceled), WithMessage(msg)).
+func RequestTimeout(msg string) Error {
+	return New(WithCode(CodeRequestTimeout), WithMessage(msg))
+}
+
 func Canceled(msg string) Error {
 	return New(WithCode(CodeCanceled), WithMessage(msg))
+}
+
+func TooManyRequests(msg string) Error {
+	return New(WithCode(CodeTooManyRequests), WithMessage(msg))
+}
+
+func UnprocessableEntity(msg string) Error {
+	return New(WithCode(CodeUnprocessableEntity), WithMessage(msg))
+}
+
+func PayloadTooLarge(msg string) Error {
+	return New(WithCode(CodePayloadTooLarge), WithMessage(msg))
+}
+
+func MethodNotAllowed(msg string) Error {
+	return New(WithCode(CodeMethodNotAllowed), WithMessage(msg))
+}
+
+func NotAcceptable(msg string) Error {
+	return New(WithCode(CodeNotAcceptable), WithMessage(msg))
+}
+
+func Gone(msg string) Error {
+	return New(WithCode(CodeGone), WithMessage(msg))
+}
+
+func BadGateway(msg string) Error {
+	return New(WithCode(CodeBadGateway), WithMessage(msg))
+}
+
+func NotImplemented(msg string) Error {
+	return New(WithCode(CodeNotImplemented), WithMessage(msg))
+}
+
+func Internal(msg string) Error {
+	return New(WithCode(CodeInternal), WithMessage(msg))
+}
+
+func DataLoss(msg string) Error {
+	return New(WithCode(CodeDataLoss), WithMessage(msg))
+}
+
+func PreconditionFailed(msg string) Error {
+	return New(WithCode(CodePreconditionFailed), WithMessage(msg))
+}
+
+func UnsupportedMediaType(msg string) Error {
+	return New(WithCode(CodeUnsupportedMediaType), WithMessage(msg))
 }
