@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/hihand/go-platform/configkit"
 	"github.com/hihand/go-platform/errkit"
 	"github.com/hihand/go-platform/errkit/grpcerr"
 	"github.com/hihand/go-platform/errkit/httperr"
@@ -223,8 +226,250 @@ func main() {
 		engine.ServeHTTP(w, req)
 		fmt.Printf("%-6s %-12s → %d %s\n", tc.method, tc.path, w.Code, strings.TrimSpace(w.Body.String()))
 	}
+
+	// =============================================================================
+	// 10. configkit: YAML file + env-var overrides, with validation
+	// =============================================================================
+
+	fmt.Println("\n--- configkit demo ---")
+
+	// Drop a small YAML file into a temp dir so the demo is
+	// self-contained — no fixture file committed to the repo.
+	demoDir, mkdirErr := os.MkdirTemp("", "configkit-demo-")
+	if mkdirErr != nil {
+		fmt.Println("mkdir:", mkdirErr)
+		return
+	}
+	defer os.RemoveAll(demoDir)
+
+	demoYAML := filepath.Join(demoDir, "config.yaml")
+	if writeErr := os.WriteFile(demoYAML, []byte(`
+server:
+  host: 0.0.0.0
+  port: 8080
+database:
+  url: postgres://localhost/app
+  max_conns: 5
+log:
+  level: info
+`), 0o600); writeErr != nil {
+		fmt.Println("write yaml:", writeErr)
+		return
+	}
+
+	// 10a. Full wiring — file + env + prefix + defaults + validator.
+	//
+	//	APP_SERVER_HOST=api.example.com \
+	//	APP_SERVER_PORT=9090 \
+	//	go run main.go
+	//
+	// re-runs with overrides. Without the env vars the file
+	// values stand.
+	loader := configkit.New(
+		configkit.WithConfigFile(demoYAML),
+		configkit.WithEnv(),
+		configkit.WithEnvPrefix("APP"),
+		configkit.WithDefaults(map[string]any{
+			"server.host":   "fallback.example.com",
+			"server.port":   4000,
+			"database.url":  "postgres://localhost/app",
+			"database.conn": 5,
+			"log.level":     "warn",
+		}),
+		configkit.WithValidator(func(c any) error {
+			// Catch missing values that the file + env left blank.
+			// Real apps wire a struct validator here
+			// (go-playground/validator, ozzo-validation, ...).
+			if c.(*DemoAppConfig).Server.Port == 0 {
+				return errors.New("server.port is required")
+			}
+			return nil
+		}),
+	)
+
+	var cfg DemoAppConfig
+	if err := loader.Load(&cfg); err != nil {
+		fmt.Println("load:", err)
+		return
+	}
+
+	fmt.Printf("server  = %s:%d\n", cfg.Server.Host, cfg.Server.Port)
+	fmt.Printf("database = %s (max_conns=%d)\n", cfg.Database.URL, cfg.Database.MaxConns)
+	fmt.Printf("log     = %s\n", cfg.Log.Level)
+
+	// 10b. Precedence matrix — env > file > default. The Loader
+	// itself doesn't expose which source supplied a value, so we
+	// re-run it twice: once without env to capture the file/default
+	// baseline, and once with env set to capture the override.
+	fmt.Println("\n--- configkit precedence (env > file > default) ---")
+
+	baseline := func() DemoAppConfig {
+		var b DemoAppConfig
+		_ = configkit.New(
+			configkit.WithConfigFile(demoYAML),
+			configkit.WithDefaults(map[string]any{
+				"server.host":  "fallback.example.com",
+				"server.port":  4000,
+				"database.url": "postgres://localhost/app",
+				"log.level":    "warn",
+			}),
+		).Load(&b)
+		return b
+	}()
+
+	// Set one env var so the override path is exercised; remember
+	// to restore it after the demo so a re-run is deterministic.
+	const overrideKey = "APP_SERVER_PORT"
+	const overrideVal = "9090"
+	prevOverride, hadOverride := os.LookupEnv(overrideKey)
+	_ = os.Setenv(overrideKey, overrideVal)
+	var overridden DemoAppConfig
+	_ = configkit.New(
+		configkit.WithConfigFile(demoYAML),
+		configkit.WithEnv(),
+		configkit.WithEnvPrefix("APP"),
+		configkit.WithDefaults(map[string]any{
+			"server.host":  "fallback.example.com",
+			"server.port":  4000,
+			"database.url": "postgres://localhost/app",
+			"log.level":    "warn",
+		}),
+	).Load(&overridden)
+	if hadOverride {
+		_ = os.Setenv(overrideKey, prevOverride)
+	} else {
+		_ = os.Unsetenv(overrideKey)
+	}
+
+	sourceFor := func(key string, baselineVal, overrideVal string) string {
+		if baselineVal != overrideVal {
+			return "env"
+		}
+		if baselineVal == defaultValueFor(key) {
+			return "default"
+		}
+		return "file"
+	}
+	for _, key := range []string{"server.host", "server.port", "log.level"} {
+		base := cfgValue(baseline, key)
+		over := cfgValue(overridden, key)
+		fmt.Printf("%-12s ← %-7s (file=%s, default=%s, env=%s)\n",
+			key, sourceFor(key, base, over),
+			base, defaultValueFor(key), over,
+		)
+	}
+
+	// 10c. Missing config file is silently ignored — boot from
+	// env + defaults alone. Useful for local development where the
+	// app may not have a config file yet.
+	fmt.Println("\n--- configkit: missing file is ignored ---")
+	missingPath := filepath.Join(demoDir, "absent.yaml")
+	var bare DemoAppConfig
+	loadErr := configkit.New(
+		configkit.WithConfigFile(missingPath),
+		configkit.WithDefault("server.host", "localhost"),
+		configkit.WithDefault("server.port", 3000),
+	).Load(&bare)
+	fmt.Println("err    =", loadErr)
+	fmt.Println("server =", bare.Server.Host+":"+itoa(bare.Server.Port))
+
+	// 10d. Validator surfaces errors verbatim. The default
+	// struct port is 0 here, so the validator fires.
+	fmt.Println("\n--- configkit: validator failure ---")
+	validateErr := configkit.New(
+		configkit.WithValidator(func(c any) error {
+			if c.(*DemoAppConfig).Server.Port == 0 {
+				return errors.New("server.port is required")
+			}
+			return nil
+		}),
+	).Load(&DemoAppConfig{})
+	fmt.Println("err    =", validateErr)
 }
 
 func logFromHelper(l logkit.Logger, msg string) {
 	l.Debug(msg)
+}
+
+// ---------- configkit demo helpers ----------------------------------------
+
+// DemoAppConfig is the application-owned configuration struct used
+// by the configkit demo. It belongs to main.go, not to configkit —
+// the package has no knowledge of it.
+type DemoAppConfig struct {
+	Server   DemoServer   `mapstructure:"server"`
+	Database DemoDatabase `mapstructure:"database"`
+	Log      DemoLog      `mapstructure:"log"`
+}
+
+type DemoServer struct {
+	Host string `mapstructure:"host"`
+	Port int    `mapstructure:"port"`
+}
+
+type DemoDatabase struct {
+	URL      string `mapstructure:"url"`
+	MaxConns int    `mapstructure:"max_conns"`
+}
+
+type DemoLog struct {
+	Level string `mapstructure:"level"`
+}
+
+// cfgValue returns the string form of a nested config field by
+// dotted path. Used by the precedence demo to print the winning
+// value for a key without dragging in reflection.
+func cfgValue(c DemoAppConfig, key string) string {
+	switch key {
+	case "server.host":
+		return c.Server.Host
+	case "server.port":
+		return itoa(c.Server.Port)
+	case "database.url":
+		return c.Database.URL
+	case "database.max_conns":
+		return itoa(c.Database.MaxConns)
+	case "log.level":
+		return c.Log.Level
+	}
+	return "<unknown>"
+}
+
+// defaultValueFor mirrors the WithDefaults map in the demo so the
+// precedence table can label each value's source (file vs. default
+// vs. env). Kept in sync with the option call above.
+func defaultValueFor(key string) string {
+	switch key {
+	case "server.host":
+		return "fallback.example.com"
+	case "server.port":
+		return "4000"
+	case "log.level":
+		return "warn"
+	}
+	return "<unknown>"
+}
+
+// itoa keeps the demo self-contained — strconv.Itoa would also do,
+// but a tiny wrapper makes the helper block above easier to read.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	var buf [20]byte
+	i := len(buf)
+	for n > 0 {
+		i--
+		buf[i] = byte('0' + n%10)
+		n /= 10
+	}
+	if neg {
+		i--
+		buf[i] = '-'
+	}
+	return string(buf[i:])
 }
