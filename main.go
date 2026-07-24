@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/hihand/go-platform/configkit"
+	"github.com/hihand/go-platform/contextkit"
 	"github.com/hihand/go-platform/errkit"
 	"github.com/hihand/go-platform/errkit/grpcerr"
 	"github.com/hihand/go-platform/errkit/httperr"
@@ -385,6 +386,67 @@ log:
 		}),
 	).Load(&DemoAppConfig{})
 	fmt.Println("err    =", validateErr)
+
+	// =============================================================================
+	// 11. contextkit: request-scoped metadata via context.Context
+	// =============================================================================
+
+	fmt.Println("\n--- contextkit demo ---")
+
+	// 11a. WithRequest + GetRequest — round-trip a request-scoped
+	// struct. The returned value is a copy, so callers can mutate
+	// it locally without affecting other layers.
+	ctx = contextkit.WithRequest(context.Background(), contextkit.Request{
+		RequestID: "req-7f3a",
+		TraceID:   "trace-001",
+		SpanID:    "span-002",
+	})
+	req := contextkit.GetRequest(ctx)
+	fmt.Printf("request = %+v\n", req)
+
+	// Overwrite on a derived context leaves the parent untouched.
+	overwrittenCtx := contextkit.WithRequest(ctx, contextkit.Request{
+		RequestID: "req-NEW",
+	})
+	fmt.Println("parent  =", contextkit.GetRequest(ctx).RequestID)
+	fmt.Println("child   =", contextkit.GetRequest(overwrittenCtx).RequestID)
+
+	// Missing values are reported as the zero struct, never as a panic.
+	fmt.Println("missing =", contextkit.GetRequest(context.Background()) == (contextkit.Request{}))
+
+	// 11b. WithIdentity + Identity — a generic, type-safe carrier
+	// for whatever auth-shaped payload the platform propagates
+	// downstream. The package has no opinion on the struct shape.
+	ctx = contextkit.WithIdentity(ctx, demoClaims{
+		UserID:     "u-42",
+		MerchantID: "m-7",
+		Roles:      []string{"admin", "billing"},
+	})
+	c, ok := contextkit.Identity[demoClaims](ctx)
+	fmt.Printf("identity ok=%v user=%s merchant=%s roles=%v\n",
+		ok, c.UserID, c.MerchantID, c.Roles)
+
+	// Asking with the wrong T returns (zero, false) — no panic.
+	_, wrong := contextkit.Identity[demoOtherClaims](ctx)
+	fmt.Println("wrong type ok =", wrong)
+
+	// Asking on a context that never had an identity returns the
+	// same (zero, false).
+	_, missing := contextkit.Identity[demoClaims](context.Background())
+	fmt.Println("missing identity ok =", missing)
+
+	// 11c. Pipeline — a transport edge stamps Request + Identity,
+	// a downstream handler reads them back. The handler is a
+	// regular function: contextkit is just a convention. We
+	// re-derive a context that keeps the freshly stamped
+	// Identity and the freshly stamped Request so the demo
+	// shows the full pipeline in one call.
+	downstreamCtx := contextkit.WithRequest(ctx, contextkit.Request{
+		RequestID: "req-NEW",
+		TraceID:   "trace-099",
+		SpanID:    "span-100",
+	})
+	handlePayment(downstreamCtx)
 }
 
 func logFromHelper(l logkit.Logger, msg string) {
@@ -472,4 +534,38 @@ func itoa(n int) string {
 		buf[i] = '-'
 	}
 	return string(buf[i:])
+}
+
+// ---------- contextkit demo helpers --------------------------------------
+
+// demoClaims is a stand-in for whatever auth-shaped struct a
+// production codebase would propagate via contextkit.Identity. The
+// package has no opinion on the shape; this one mirrors the
+// Claims example in the package documentation.
+type demoClaims struct {
+	UserID     string
+	MerchantID string
+	Roles      []string
+}
+
+// demoOtherClaims shares a single field name with demoClaims but
+// is otherwise unrelated. It exists only so the demo can show that
+// reading with the wrong T surfaces as (zero, false) — no panic.
+type demoOtherClaims struct {
+	UserID string
+}
+
+// handlePayment is the "downstream layer" the contextkit demo
+// hands a context to. In a real codebase it would be a gRPC handler,
+// HTTP middleware, repository method, or queue worker. The body
+// here only proves that contextkit values survive the call.
+func handlePayment(ctx context.Context) {
+	req := contextkit.GetRequest(ctx)
+	c, ok := contextkit.Identity[demoClaims](ctx)
+	if !ok {
+		fmt.Println("handlePayment: no identity, skipping")
+		return
+	}
+	fmt.Printf("handlePayment: request_id=%s user=%s merchant=%s\n",
+		req.RequestID, c.UserID, c.MerchantID)
 }
